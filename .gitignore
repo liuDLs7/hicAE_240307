@@ -1,0 +1,4 @@
+.ssh/
+src/__pycache__/
+aenets/__pycache__/
+PC_datas/

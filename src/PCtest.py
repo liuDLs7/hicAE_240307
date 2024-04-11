@@ -16,8 +16,23 @@ import sys
 #from clusters import ClusteringEnsemble, EnsembleClustering
 from sklearn.ensemble import VotingClassifier
 import ClusterEnsembles as CE
+import markov_clustering as mc
+import networkx as nx
+import random
+from DIANA import DIANA
+from sklearn.manifold import TSNE
 
 sys.path.append('../aenets')
+
+# 计算余弦相似性矩阵
+def cosine_similarity_matrix(features):
+    # 计算特征向量的范数
+    norm = np.linalg.norm(features, axis=1, keepdims=True)
+    # 归一化特征向量
+    normalized_features = features / norm
+    # 计算相似性矩阵
+    similarity_matrix = np.dot(normalized_features, normalized_features.T)
+    return similarity_matrix
 
 
 def run_on_model(dataset, nc, ndim, cluster='k-means'):
@@ -76,6 +91,17 @@ def run_on_model(dataset, nc, ndim, cluster='k-means'):
         # 平衡迭代
         birch = Birch(n_clusters=nc, threshold=1, branching_factor=50)
         labels = birch.fit_predict(matrix_reduce[:, :ndim])
+
+    elif cluster == 'mc':
+        similarity_matrix = cosine_similarity_matrix(matrix_reduce[:, :ndim])
+        result = mc.run_mcl(similarity_matrix, inflation=2.5)           # run MCL with default parameters
+        clusters = mc.get_clusters(result)    # get clusters
+        print(clusters)
+        exit(0)
+
+    elif cluster == 'diana':
+        diana = DIANA(nclusters=nc, random_state=1024)
+        labels = diana.fit_predict(TSNE(learning_rate=750, random_state=1024).fit_transform(matrix_reduce[:, :ndim]))
 
     elif cluster == 'ensemble':
         kmeans = KMeans(n_clusters=nc, n_init=500).fit(matrix_reduce[:, :ndim])
@@ -172,7 +198,7 @@ if __name__ == '__main__':
 
     dataset = 'Lee'
     # k-means, agg, spec, birch, ensemble
-    cluster = 'ensemble'
+    cluster = 'diana'
     result_path = '../PC_datas/results.json'
     is_write = False
     notes = ''

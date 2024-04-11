@@ -45,7 +45,7 @@ def get_max_chr_len(root_dir, chr_num):
 
 def neighbor_ave_gpu(A, pad):
     if pad == 0:
-        return torch.from_numpy(A).float().cuda(6)
+        return torch.from_numpy(A).float().cuda()
     ll = pad * 2 + 1
     conv_filter = torch.ones(1, 1, ll, ll).cuda()
     B = F.conv2d(torch.from_numpy(A[None, None, :, :]).float().cuda(), conv_filter, padding=pad * 2)
@@ -104,7 +104,7 @@ def impute_gpu(ngene, pad, rp, file_path, is_weight: bool, weights):
 def normalize_by_chr(ngene, pad, rp, file_path, is_weight: bool, weights, mode='None'):
     # not to conv when pad == 0, not to random_walk when rp == -1
     Q = impute_gpu(ngene, pad, rp, file_path, is_weight, weights)
-    assert mode in ['None', 'chr_max', 'chr_sum'], \
+    assert mode in ['None', 'chr_max', 'chr_sum', 'col_sum'], \
         print('normalize_mode should in [\'None\', \'chr_max\', \'chr_sum\']')
     if mode == 'None':
         param = 1.0
@@ -112,6 +112,14 @@ def normalize_by_chr(ngene, pad, rp, file_path, is_weight: bool, weights, mode='
         param = torch.max(Q)
     elif mode == 'chr_sum':
         param = torch.sum(Q)
+    elif mode == 'col_sum':
+        # 求取每一行的和
+        row_sums = torch.sum(Q, dim=1)
+        # 避免除零错误，将为0的值置为1
+        row_sums[row_sums == 0] = 1
+        # 将每一行元素除以对应行的和
+        Q_normalized = Q / row_sums.unsqueeze(1)
+        return Q_normalized
     else:
         assert 0, exit(2)
     return Q / param
@@ -131,7 +139,7 @@ def myflatten(A, process_pattern: str = 'row', m: int = -1):
     elif process_pattern == 'diag':
         # 按对角线取，只取靠近主对角线的m条（含主对角线)
         if m != -1:
-            upper_diags = [np.diagonal(A, offset=i) for i in range(1, m)]
+            upper_diags = [np.diagonal(A, offset=i) for i in range(0, m)]
         else:
             upper_diags = [np.diagonal(A, offset=i) for i in range(0, A.shape[0])]
 
@@ -145,14 +153,14 @@ def myflatten(A, process_pattern: str = 'row', m: int = -1):
 
 def main():
     # **********************************调参部分*******************************************
-    dataset = 'Ramani'
+    dataset = 'Flyamer'
     pad = 0
     rp = -1
     mode = 'chr_max'
     process_pattern = 'diag'
     m = 8
-    chr_num = 23
-    extra = '_test'
+    chr_num = 23 if dataset in ['Ramani', '4DN', 'Lee'] else 20
+    extra = ''
 
     is_weight = False
     weights = [10, 8, 6, 4, 2]
@@ -167,6 +175,13 @@ def main():
 
     sub_dirs = get_subdirectories(root_dir)
 
+    # 定义需要排除的元素
+    exclude_elements = ['avgs', 'weights']
+
+    for sub_dir in sub_dirs:
+        if sub_dir in exclude_elements:
+            sub_dirs.remove(sub_dir)
+
     # chr_lens = get_max_chr_len(processed_dir, chr_num=chr_num)
     if dataset == 'Ramani':
         chr_lens = [250, 244, 198, 192, 181, 171, 160, 147, 142, 136, 135, 134, 116, 108, 103, 91, 82, 79, 60, 63, 49,
@@ -177,6 +192,10 @@ def main():
     elif dataset == 'Lee':
         chr_lens = [251, 245, 200, 193, 182, 173, 161, 148, 143, 137, 137, 135, 116, 108, 103, 92, 83, 80, 61, 65, 49,
                     52, 157]
+    elif dataset == 'Collombet':
+        chr_lens = [196, 183, 160, 157, 152, 150, 146, 130, 125, 131, 122, 121, 121, 125, 104, 99, 95, 91, 62, 171]
+    elif dataset == 'Flyamer':
+        chr_lens = [196, 182, 160, 156, 152, 150, 146, 130, 125, 130, 122, 121, 121, 125, 104, 99, 95, 91, 62, 167]
     else:
         assert 0, print('check dataset name!')
     print(chr_lens)

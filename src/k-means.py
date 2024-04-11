@@ -1,9 +1,14 @@
-from sklearn.cluster import KMeans, DBSCAN, AgglomerativeClustering, SpectralClustering
+from sklearn.cluster import \
+    KMeans, DBSCAN, AgglomerativeClustering, SpectralClustering, AffinityPropagation, Birch, MiniBatchKMeans, MeanShift
+from sklearn.neighbors import kneighbors_graph
+from sklearn.metrics.cluster import adjusted_mutual_info_score
+from sklearn.mixture import GaussianMixture
 from sklearn.decomposition import PCA
 from sklearn.metrics.pairwise import pairwise_distances
 from dataset import MyDataset
 import torch
 import numpy as np
+np.random.seed(42)
 from torch.utils.data import DataLoader
 import time
 import random
@@ -12,8 +17,8 @@ import json
 from scipy.sparse import csr_matrix
 import re
 import sys
-# from clusters import ClusteringEnsemble
-
+from sklearn.manifold import TSNE
+from DIANA import DIANA
 sys.path.append('../aenets')
 from net import AE, AE_test
 
@@ -48,8 +53,8 @@ def make_datasets(network, ngenes, root_dir, is_X=False):
     return datasets
 
 
-def run_on_model(model_dir, train_epochs, network, ngenes, nc, ndim=20, is_X=False, prct=20, cluster='k-means'):
-    assert cluster in ['k-means', 'dbscan', 'agg', 'spec', 'ensemble'], print('no such cluster!')
+def run_on_model(model_dir, train_epochs, network, ngenes, nc, ndim=20, is_X=False, prct=20, cluster='k-means', is_code='True'):
+    #assert cluster in ['k-means', 'diana', 'agg', 'spec', 'ensemble'], print('no such cluster!')
     matrix = []
     ndims = []
     for c, ngene in enumerate(ngenes):
@@ -81,8 +86,10 @@ def run_on_model(model_dir, train_epochs, network, ngenes, nc, ndim=20, is_X=Fal
                 reconstructed_datas = model.decoder(embedding)
 
                 # Q_concat.append(test_data)
-                # Q_concat.append(embedding.cpu().numpy())
-                Q_concat.append(reconstructed_datas.cpu().numpy())
+                if is_code:
+                    Q_concat.append(embedding.cpu().numpy())
+                else:
+                    Q_concat.append(reconstructed_datas.cpu().numpy())
 
         Q_concat = np.array(Q_concat)
 
@@ -99,34 +106,78 @@ def run_on_model(model_dir, train_epochs, network, ngenes, nc, ndim=20, is_X=Fal
         matrix.append(Q_concat)
     matrix = np.concatenate(matrix, axis=1)
     print(matrix.shape)
-    pca = PCA(n_components=min(matrix.shape) - 1)
-    matrix_reduce = pca.fit_transform(matrix)
-    # ndim = 30
     ndim = min(ndims)
+    #pca = PCA(n_components=ndim)
+    pca = PCA(n_components=int(min(matrix.shape) * 0.2) - 1)
+    #tsne = TSNE(n_components=2, learning_rate=500)
+    matrix_reduce = pca.fit_transform(matrix)
+    #matrix_reduce = tsne.fit_transform(matrix)
+    #ndim = 10
     print('ndim = ' + str(ndim))
+    print(matrix_reduce.shape)
     # 下载到PC端可视化
     # np.save('matrix_reduced.npy', matrix_reduce)
+    tsne = TSNE(learning_rate=1000, random_state=42)
+    matrix_tsne = tsne.fit_transform(matrix_reduce[:, :ndim])
     
+
     if cluster == 'k-means':
         # k-means
+        #kmeans = KMeans(n_clusters=nc, n_init=500).fit(matrix_tsne)
         kmeans = KMeans(n_clusters=nc, n_init=500).fit(matrix_reduce[:, :ndim])
         print('n_iter =', kmeans.n_iter_)
         labels = kmeans.labels_
 
-    elif cluster == 'dbscan':
-        # DBSCAN
-        dbscan = DBSCAN(eps=15, min_samples=25)
-        labels = dbscan.fit_predict(matrix_reduce[:, :ndim])
+    elif cluster == 'gauss':
+        gmm = GaussianMixture(n_components=nc, covariance_type='diag', random_state=42)
+        labels = gmm.fit_predict(matrix_tsne)
+
+    elif cluster == 'diana':
+        diana = DIANA(nclusters=nc, random_state=None)
+        tsne = TSNE(learning_rate=1000, random_state=None)
+        matrix_tsne = tsne.fit_transform(matrix_reduce[:, :ndim])
+        labels = diana.fit_predict(matrix_tsne)
 
     elif cluster == 'agg':
         # 层次聚类（Agglomerative Clustering）
+        distances = ["euclidean", "l1", "l2", "manhattan", "cosine"]
+        links = ['ward', 'average', 'complete']
+        # 这组参数可以用?
+        # agg_clustering = AgglomerativeClustering(n_clusters=nc, affinity=distances[4], linkage=links[2])
         agg_clustering = AgglomerativeClustering(n_clusters=nc)
         labels = agg_clustering.fit_predict(matrix_reduce[:, :ndim])
+        # labels = agg_clustering.fit_predict(matrix_tsne)
+
+    elif cluster == 'agg2':
+        # 层次聚类（Agglomerative Clustering）
+        distances = ["euclidean", "l1", "l2", "manhattan", "cosine"]
+        links = ['ward', 'average', 'complete']
+        # 这组参数可以用?
+        agg_clustering = AgglomerativeClustering(n_clusters=nc, affinity=distances[4], linkage=links[2])
+        # agg_clustering = AgglomerativeClustering(n_clusters=nc)
+        # labels = agg_clustering.fit_predict(matrix_reduce[:, :ndim])
+        labels = agg_clustering.fit_predict(matrix_tsne)
+
+    elif cluster == 'birch':
+        # 平衡迭代
+        birch = Birch(n_clusters=nc, threshold=1, branching_factor=50)
+        labels = birch.fit_predict(matrix_reduce[:, :ndim])
 
     elif cluster == 'spec':
         # 谱聚类（Spectral Clustering）
         spectral_clustering = SpectralClustering(n_clusters=nc, affinity='nearest_neighbors', n_init=100)
         labels = spectral_clustering.fit_predict(matrix_reduce[:, :ndim])
+
+    elif cluster == 'specg':
+        # 谱图聚类（Spectral Clustering）
+        # 构建图的邻接矩阵（这里以K近邻图为例）
+        k = 10
+        connectivity = kneighbors_graph(matrix_reduce[:, :ndim], n_neighbors=k, include_self=False)
+
+        # 谱图聚类（Spectral Graph Clustering）
+        spectral_clustering = SpectralClustering(n_clusters=nc, affinity='precomputed', assign_labels='kmeans', n_init=100)
+        labels = spectral_clustering.fit_predict(connectivity)
+    
 
     #elif cluster == 'ensemble':
         #kmeans = KMeans(n_clusters=nc, n_init=500)
@@ -188,21 +239,23 @@ if __name__ == '__main__':
 
     # *******************************调参部分*****************************************
 
-    dataset = '4DN'
+    dataset = 'Flyamer'
     sdir = 'diag8'
-    extra = 'm10_o6'
+    extra = 'm20_o6'
     train_epochs = 500
     prct = 30
-    # k-means, agg, spec, ensemble
-    cluster = 'agg'
-
-    is_save = False
+    # k-means, agg, agg2, spec, ensemble, birch, (gauss)
+    cluster = 'k-means'
+    is_code = False
+    extra2 = '' if not is_code else 'code'
+ 
+    is_save = True
 
     # ********************************************************************************
 
     # 保存单种聚类方法结果，以便聚类集成使用
     cluster_dir = '../PC_datas/predict_labels/{}'.format(dataset)
-    cluster_file = '{}_{}_{}_{}_{}.npy'.format(sdir, extra, train_epochs, prct, cluster)
+    cluster_file = '{}_{}_{}_{}_{}_{}.npy'.format(sdir, extra, train_epochs, prct, cluster, extra2)
     cluster_path = os.path.join(cluster_dir, cluster_file)
     os.makedirs(cluster_dir, exist_ok=True)
 
@@ -213,12 +266,16 @@ if __name__ == '__main__':
         nc = 5
     elif dataset == 'Ramani':
         nc = 4
+    elif dataset == 'Collombet':
+        nc = 5
+    elif dataset == 'Flyamer':
+        nc = 3
     else:
         assert 0, print('check dataset name!')
 
     ndim = 20
     # 含X染色体总数
-    chr_num = 23
+    chr_num = 23 if dataset in ['Ramani', '4DN', 'Lee'] else 20
     is_X = False if dataset == 'Lee' else True
 
     # 加载数据位置
@@ -268,22 +325,33 @@ if __name__ == '__main__':
             network.append(cell_path)
             y.append(str2dig[label_dir])
 
+    index_array = np.arange(len(y))
+    random.shuffle(index_array)
+
+    # 打乱y和network
+    y_shuffled = [y[i] for i in index_array]
+    network_shuffled = [network[i] for i in index_array]
+
     if train_epochs <= 0:
-        cluster_labels = run_original_data(network, ngenes, nc, ndim, is_X, prct)
+        cluster_labels = run_original_data(network_shuffled, ngenes, nc, ndim, is_X, prct)
     else:
-        cluster_labels = run_on_model(model_dir, train_epochs, network, ngenes, nc, ndim, is_X, prct, cluster=cluster)
+        cluster_labels = run_on_model(model_dir, train_epochs, network_shuffled, ngenes, nc, ndim, is_X, prct, cluster=cluster, is_code=is_code)
         #cluster_labels = np.load(cluster_path)
 
     y = np.array(y)
+    cluster_labels_restored = [x for _, x in sorted(zip(index_array, cluster_labels))]
+    cluster_labels = np.array(cluster_labels_restored)
     
     from sklearn.metrics import adjusted_rand_score, normalized_mutual_info_score, homogeneity_score, completeness_score
 
     # 计算调整兰德指数和归一化互信息
+    anmi_score = adjusted_mutual_info_score(y, cluster_labels)
     ari = adjusted_rand_score(y, cluster_labels)
     nmi = normalized_mutual_info_score(y, cluster_labels)
     hm = homogeneity_score(y, cluster_labels)
     fm = completeness_score(y, cluster_labels)
 
+    # print("ANMI Score:", anmi_score)
     print("Adjusted Rand Index (ARI):", ari)
     print("Normalized Mutual Information (NMI):", nmi)
     print("Homogeneity (HM):", hm)
@@ -295,3 +363,4 @@ if __name__ == '__main__':
     if is_save:
         np.save('../PC_datas/labels/{}_labels'.format(dataset), y)
         np.save(cluster_path, cluster_labels)
+        print('The result has been saved in {}'.format(cluster_path))

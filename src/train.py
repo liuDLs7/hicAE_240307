@@ -8,6 +8,7 @@ from dataset import MyDataset
 import os
 import time
 import numpy as np
+np.random.seed(42)
 import sys
 from tqdm import tqdm as progress_bar
 from tqdm import trange
@@ -49,19 +50,16 @@ def make_datasets(network, ngenes, root_dir, is_X, update_mask, mask_rate):
 if __name__ == '__main__':
     # 设置设备
     device = torch.device("cuda:7" if torch.cuda.is_available() else "cpu")
-    device1 = torch.device('cuda:1')
-    device2 = torch.device('cuda:2')
-    device_ids = [5, 6, 7]
-    print(device, device1, device2)
+    print(device)
 
     # *******************************调参部分*****************************************
 
-    ds = '4DN'
+    ds = 'Flyamer'
     sd = 'diag8'
-    extra = 'm10_o6'
+    extra = 'm20_o6'
 
     # 含X染色体总数
-    chr_num = 23
+    chr_num = 23 if ds in ['Ramani', '4DN', 'Lee'] else 20
     is_X = False if ds == 'Lee' else True
 
     # 是否使用训练过的模型继续训练
@@ -75,7 +73,7 @@ if __name__ == '__main__':
     batch_size = 256
     lr = 1e-3
     update_mask = True
-    mask_rate = 0.10
+    mask_rate = 0.20
     # 用来调整embedding层大小
     opt_rate = 1.0 / 6.0
 
@@ -101,12 +99,12 @@ if __name__ == '__main__':
 
     for label_dir in label_dirs:
         sub_path = os.path.join(root_dir, label_dir)
-        files = os.listdir(sub_path)
+        file_names = os.listdir(sub_path)
         file_num = 0
         cell_numbers = []
-        for filen in files:
+        for file_name in file_names:
             file_num += 1
-            match = re.search(r'cell_(\d+)_chr([0-9XY]+).npy', filen)
+            match = re.search(r'cell_(\d+)_chr([0-9XY]+).npy', file_name)
             cell_number = int(match.group(1))
             if cell_number not in cell_numbers:
                 cell_numbers.append(cell_number)

@@ -2,22 +2,22 @@ import numpy as np
 import os
 from sklearn.metrics import adjusted_rand_score, normalized_mutual_info_score, homogeneity_score, completeness_score
 
-dataset = '4DN'
+dataset = 'Ramani'
 sdir1 = 'diag8'
 extra1 = 'm20_o6'
 train_epochs1 = 500
 prct1 = 30
 # k-means, agg, spec, ensemble
-cluster1 = 'agg'
-a1 = ''
+cluster1 = 'agg2'
+a1 = 'code'
 
 sdir2 = 'diag8'
-extra2 = 'm20_o6'
+extra2 = 'm20_o6_test'
 train_epochs2 = 500
 prct2 = 30
 # k-means, agg, spec, ensemble
-cluster2 = 'birch'
-a2 = ''
+cluster2 = 'agg2'
+a2 = 'code'
 
 cluster_dir1 = '../PC_datas/predict_labels/{}'.format(dataset)
 cluster_file1 = '{}_{}_{}_{}_{}_{}.npy'.format(sdir1, extra1, train_epochs1, prct1, cluster1, a1)

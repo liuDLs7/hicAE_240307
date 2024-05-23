@@ -109,6 +109,8 @@ class MyDataset(Dataset):
                 mask_index = self.masks_index[self.file_names[idx]]
                 # start_time = time.time()
                 masked_data = np.copy(data)
+                # msum = sum(masked_data[mask_index])
+                # mavg = msum / len(mask_index)
                 masked_data[mask_index] = 0
                 combined_data.append(masked_data)
                 # self.gen_mask_time += time.time() - start_time

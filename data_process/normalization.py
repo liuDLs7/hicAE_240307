@@ -45,10 +45,12 @@ def get_max_chr_len(root_dir, chr_num):
 
 def neighbor_ave_gpu(A, pad):
     if pad == 0:
-        return torch.from_numpy(A).float().cuda()
+        return torch.from_numpy(A).float().cuda(6)
     ll = pad * 2 + 1
     conv_filter = torch.ones(1, 1, ll, ll).cuda()
     B = F.conv2d(torch.from_numpy(A[None, None, :, :]).float().cuda(), conv_filter, padding=pad * 2)
+    # B = F.conv2d(B, conv_filter, padding=pad * 2)
+    # B = F.conv2d(B, conv_filter, padding=pad * 2)
     return B[0, 0, pad:-pad, pad:-pad] / float(ll * ll)
 
 
@@ -83,9 +85,9 @@ def impute_gpu(ngene, pad, rp, file_path, is_weight: bool, weights):
         for i in range(len(weights)):
             diag = np.diag(np.diag(A, i) * (weights[i] - 1), i)
             diags.append(diag)
-
+            
     diag = np.diag(np.diag(A))
-    A = A + A.T - diag + 1
+    A = A + A.T+ 1
 
     if is_weight:
         for diag in diags:
@@ -94,6 +96,9 @@ def impute_gpu(ngene, pad, rp, file_path, is_weight: bool, weights):
     A = np.log2(A)
 
     A = neighbor_ave_gpu(A, pad)
+    # np.save('tmp2.npy', A.cpu().numpy())
+    # exit(0)
+
     if rp == -1:
         Q = A[:]
     else:
@@ -104,8 +109,8 @@ def impute_gpu(ngene, pad, rp, file_path, is_weight: bool, weights):
 def normalize_by_chr(ngene, pad, rp, file_path, is_weight: bool, weights, mode='None'):
     # not to conv when pad == 0, not to random_walk when rp == -1
     Q = impute_gpu(ngene, pad, rp, file_path, is_weight, weights)
-    assert mode in ['None', 'chr_max', 'chr_sum', 'col_sum'], \
-        print('normalize_mode should in [\'None\', \'chr_max\', \'chr_sum\']')
+    # assert mode in ['None', 'chr_max', 'chr_sum', 'col_sum'], \
+    #     print('normalize_mode should in [\'None\', \'chr_max\', \'chr_sum\']')
     if mode == 'None':
         param = 1.0
     elif mode == 'chr_max':
@@ -120,6 +125,8 @@ def normalize_by_chr(ngene, pad, rp, file_path, is_weight: bool, weights, mode='
         # 将每一行元素除以对应行的和
         Q_normalized = Q / row_sums.unsqueeze(1)
         return Q_normalized
+    elif mode == 'nd':
+        pass
     else:
         assert 0, exit(2)
     return Q / param
@@ -153,17 +160,18 @@ def myflatten(A, process_pattern: str = 'row', m: int = -1):
 
 def main():
     # **********************************调参部分*******************************************
-    dataset = 'Flyamer'
+    dataset = 'Ramani'
     pad = 0
     rp = -1
     mode = 'chr_max'
     process_pattern = 'diag'
-    m = 8
+    m = -1
     chr_num = 23 if dataset in ['Ramani', '4DN', 'Lee'] else 20
     extra = ''
 
     is_weight = False
     weights = [10, 8, 6, 4, 2]
+    norm2 = 'None'
 
     notes = 'None'
     # ************************************************************************************
@@ -172,6 +180,8 @@ def main():
     target_dir = '../../Datas/vectors/{0}/{1}{2}{3}'.format(
         dataset, process_pattern, 'all' if m == -1 else str(m), extra)
     processed_dir = '../../Datas/{0}/{0}_processed'.format(dataset)
+
+    print(target_dir)
 
     sub_dirs = get_subdirectories(root_dir)
 
@@ -229,6 +239,12 @@ def main():
             t2 = time.time()
             M = M.cpu().numpy()
             M_vector = myflatten(M, process_pattern=process_pattern, m=m)
+            if norm2 == 'None':
+                pass
+            elif norm2 == 'chr_max':
+                M_vector = M_vector / max(M_vector)
+            elif norm2 == 'nd': # 正态分布
+                pass
             t3 = time.time()
             # M_vector = M.flatten()
 
@@ -262,7 +278,8 @@ def main():
         'chr_num': chr_num,
         'pad': pad,
         'rp': rp,
-        'mode': mode,
+        'norm1': mode,
+        'norm2': norm2,
         'process_pattern': process_pattern,
         'm': m,
         'chr_lens': chr_lens,

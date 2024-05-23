@@ -15,7 +15,7 @@ from tqdm import trange
 import re
 
 sys.path.append('../aenets')
-from net import AE, AE_test
+from net import AE, AE2, AET
 
 
 def get_subdirectories(folder_path: str):
@@ -49,13 +49,13 @@ def make_datasets(network, ngenes, root_dir, is_X, update_mask, mask_rate):
 
 if __name__ == '__main__':
     # 设置设备
-    device = torch.device("cuda:7" if torch.cuda.is_available() else "cpu")
+    device = torch.device("cuda:6" if torch.cuda.is_available() else "cpu")
     print(device)
 
     # *******************************调参部分*****************************************
 
-    ds = 'Flyamer'
-    sd = 'diag8'
+    ds = 'Ramani'
+    sd = 'diagall'
     extra = 'm20_o6'
 
     # 含X染色体总数
@@ -73,9 +73,10 @@ if __name__ == '__main__':
     batch_size = 256
     lr = 1e-3
     update_mask = True
-    mask_rate = 0.20
+    mask_rate = 0.2
     # 用来调整embedding层大小
     opt_rate = 1.0 / 6.0
+    model_type = 'AE'
 
     # ********************************************************************************
 
@@ -139,7 +140,15 @@ if __name__ == '__main__':
             json.dump(size_data, f)
 
         # 创建模型实例并将其移动到GPU上
-        model = AE(ipt_size, opt_size)
+        if model_type == 'AE':
+            model = AE(ipt_size, opt_size)
+        elif model_type == 'AE2':
+            model = AE2(ipt_size, opt_size)
+        elif model_type == 'AET':
+            model = AET(ipt_size, opt_size)
+        else:
+            print('check model name!')
+
         if is_pretrained:
             model.load_state_dict(torch.load(load_model_path, map_location=device))
         model.to(device)
@@ -186,6 +195,11 @@ if __name__ == '__main__':
             epoch_loss = running_loss / len(train_loader.dataset)  # 计算整个训练集上的平均损失值
             if (epoch + 1) % 10 == 0:
                 print(f"Epoch [{epoch + 1}/{num_epochs}], Average Loss: {epoch_loss * 1e4:.4f}")
+
+            # 做对比实验用
+            # if epoch in [300,400,600,700]:
+            #     t_smp = os.path.join(model_dir, 'chr' + c + '_' + str(epoch) + 'epochs.pth')
+            #     torch.save(model.state_dict(), t_smp)
 
         print('chr' + c + ' complete train!')
         print('chr' + c + ' use time: ' + str(time.time() - start))
